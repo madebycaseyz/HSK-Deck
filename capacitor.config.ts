@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.madebycaseyz.hskbridge',
+  appId: 'com.madebycaseyz.hskdeck',
   appName: 'HSK Deck',
   webDir: 'dist',
   server: {

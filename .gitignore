@@ -29,3 +29,6 @@ ios/App/App/public
 ios/DerivedData
 *.xcuserdata
 
+# Local archives / export logs
+build/
+
