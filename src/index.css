@@ -262,17 +262,33 @@ button:disabled {
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   overflow: hidden;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease;
   perspective: 1000px;
   cursor: pointer;
   font: inherit;
   color: inherit;
   text-align: center;
   container-type: inline-size;
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+.flashcard.is-dragging {
+  transition: none;
+  cursor: grabbing;
+}
+
+.flashcard.is-swipe-animating {
+  transition: transform 0.22s ease-out, opacity 0.22s ease-out;
 }
 
 .flashcard:hover {
   transform: scale(1.01);
+}
+
+.flashcard.is-dragging:hover,
+.flashcard.is-swipe-animating:hover {
+  transform: none;
 }
 
 .flashcard-face {

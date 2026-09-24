@@ -104,26 +104,38 @@ describe('StudySession v1', () => {
   })
 
   it('swipes left to go next and right to go previous', () => {
+    vi.useFakeTimers()
     const { props } = renderSession({ index: 1 })
     const card = screen.getByRole('button', { name: /Show pinyin and meaning/i })
 
     card.dispatchEvent(
-      new PointerEvent('pointerdown', { clientX: 200, clientY: 100, bubbles: true }),
+      new PointerEvent('pointerdown', { clientX: 200, clientY: 100, bubbles: true, pointerId: 1 }),
     )
     card.dispatchEvent(
-      new PointerEvent('pointerup', { clientX: 100, clientY: 105, bubbles: true }),
+      new PointerEvent('pointermove', { clientX: 120, clientY: 102, bubbles: true, pointerId: 1 }),
     )
+    card.dispatchEvent(
+      new PointerEvent('pointerup', { clientX: 100, clientY: 105, bubbles: true, pointerId: 1 }),
+    )
+    expect(props.onFlipNavigate).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(220)
     expect(props.onFlipNavigate).toHaveBeenCalledWith(1)
 
     vi.mocked(props.onFlipNavigate).mockClear()
 
     card.dispatchEvent(
-      new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true }),
+      new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true, pointerId: 2 }),
     )
     card.dispatchEvent(
-      new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true }),
+      new PointerEvent('pointermove', { clientX: 180, clientY: 100, bubbles: true, pointerId: 2 }),
     )
+    card.dispatchEvent(
+      new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true, pointerId: 2 }),
+    )
+    vi.advanceTimersByTime(220)
     expect(props.onFlipNavigate).toHaveBeenCalledWith(-1)
+
+    vi.useRealTimers()
   })
 
   it('still rates words', async () => {

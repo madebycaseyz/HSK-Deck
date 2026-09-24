@@ -21,7 +21,13 @@ const deckTitles: Record<DeckKind, string> = {
   review: 'Review again',
 }
 
-const SWIPE_THRESHOLD_PX = 48
+const SWIPE_THRESHOLD_PX = 56
+const DRAG_LOCK_PX = 10
+const EXIT_DISTANCE_PX = 440
+const SWIPE_ANIM_MS = 220
+const ROTATE_PER_PX = 0.045
+
+type SwipePhase = 'idle' | 'dragging' | 'returning' | 'exiting'
 
 function displayLabel(label: string): string {
   return label === '7-9' ? '7–9' : label
@@ -64,14 +70,37 @@ export function StudySession({
   onRestart,
 }: StudySessionProps) {
   const [flipped, setFlipped] = useState(false)
+  const [offsetX, setOffsetX] = useState(0)
+  const [phase, setPhase] = useState<SwipePhase>('idle')
   const word = words[index]
   const levelLabel = displayLabel(getLevelLabel(level))
-  const pointerStart = useRef<{ x: number; y: number } | null>(null)
+  const pointerStart = useRef<{ x: number; y: number; pointerId: number } | null>(null)
+  const offsetRef = useRef(0)
+  const phaseRef = useRef<SwipePhase>('idle')
   const didSwipe = useRef(false)
+  const animTimer = useRef<number | null>(null)
+
+  const setPhaseBoth = (next: SwipePhase) => {
+    phaseRef.current = next
+    setPhase(next)
+  }
+
+  const clearAnimTimer = () => {
+    if (animTimer.current !== null) {
+      window.clearTimeout(animTimer.current)
+      animTimer.current = null
+    }
+  }
 
   useEffect(() => {
     setFlipped(false)
+    clearAnimTimer()
+    offsetRef.current = 0
+    setOffsetX(0)
+    setPhaseBoth('idle')
   }, [word?.id, index])
+
+  useEffect(() => () => clearAnimTimer(), [])
 
   if (complete) {
     return (
@@ -119,25 +148,88 @@ export function StudySession({
   const meaningText = hasMeaning ? word.meaning : '—'
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    pointerStart.current = { x: e.clientX, y: e.clientY }
+    if (phaseRef.current === 'exiting' || phaseRef.current === 'returning') return
+    pointerStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
     didSwipe.current = false
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const start = pointerStart.current
+    if (!start || e.pointerId !== start.pointerId) return
+    if (phaseRef.current === 'exiting' || phaseRef.current === 'returning') return
+
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+
+    if (phaseRef.current !== 'dragging') {
+      if (Math.abs(dx) < DRAG_LOCK_PX) return
+      if (Math.abs(dx) <= Math.abs(dy)) {
+        pointerStart.current = null
+        e.currentTarget.releasePointerCapture?.(start.pointerId)
+        return
+      }
+      didSwipe.current = true
+      setPhaseBoth('dragging')
+    }
+
+    offsetRef.current = dx
+    setOffsetX(dx)
+  }
+
+  const finishReturn = () => {
+    offsetRef.current = 0
+    setOffsetX(0)
+    setPhaseBoth('idle')
   }
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
     const start = pointerStart.current
     pointerStart.current = null
-    if (!start) return
+    if (!start || e.pointerId !== start.pointerId) return
 
-    const dx = e.clientX - start.x
-    const dy = e.clientY - start.y
-    if (Math.abs(dx) < SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return
+    e.currentTarget.releasePointerCapture?.(start.pointerId)
 
-    didSwipe.current = true
-    // Swipe left → next; swipe right → previous
-    if (dx < 0) {
-      if (index < words.length - 1) onFlipNavigate(1)
-    } else if (index > 0) {
-      onFlipNavigate(-1)
+    if (phaseRef.current !== 'dragging') return
+
+    const dx = offsetRef.current
+    const goNext = dx < -SWIPE_THRESHOLD_PX && index < words.length - 1
+    const goPrev = dx > SWIPE_THRESHOLD_PX && index > 0
+
+    if (goNext || goPrev) {
+      const delta = goNext ? 1 : -1
+      const exitX = dx < 0 ? -EXIT_DISTANCE_PX : EXIT_DISTANCE_PX
+      didSwipe.current = true
+      setPhaseBoth('exiting')
+      offsetRef.current = exitX
+      setOffsetX(exitX)
+      clearAnimTimer()
+      animTimer.current = window.setTimeout(() => {
+        onFlipNavigate(delta)
+        finishReturn()
+      }, SWIPE_ANIM_MS)
+      return
+    }
+
+    setPhaseBoth('returning')
+    offsetRef.current = 0
+    setOffsetX(0)
+    clearAnimTimer()
+    animTimer.current = window.setTimeout(finishReturn, SWIPE_ANIM_MS)
+  }
+
+  const onPointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const start = pointerStart.current
+    pointerStart.current = null
+    if (start) {
+      e.currentTarget.releasePointerCapture?.(start.pointerId)
+    }
+    if (phaseRef.current === 'dragging') {
+      setPhaseBoth('returning')
+      offsetRef.current = 0
+      setOffsetX(0)
+      clearAnimTimer()
+      animTimer.current = window.setTimeout(finishReturn, SWIPE_ANIM_MS)
     }
   }
 
@@ -146,8 +238,19 @@ export function StudySession({
       didSwipe.current = false
       return
     }
+    if (phaseRef.current !== 'idle') return
     setFlipped((f) => !f)
   }
+
+  const dragOpacity = 1 - Math.min(0.28, Math.abs(offsetX) / 520)
+  const cardStyle =
+    phase === 'idle' && offsetX === 0
+      ? undefined
+      : {
+          transform: `translateX(${offsetX}px) rotate(${offsetX * ROTATE_PER_PX}deg)`,
+          opacity: phase === 'exiting' ? 0 : dragOpacity,
+        }
+
 
   return (
     <div className="page study">
@@ -163,7 +266,15 @@ export function StudySession({
       <div
         role="button"
         tabIndex={0}
-        className={`flashcard ${flipped ? 'is-flipped' : ''}`}
+        className={[
+          'flashcard',
+          flipped ? 'is-flipped' : '',
+          phase === 'dragging' ? 'is-dragging' : '',
+          phase === 'returning' || phase === 'exiting' ? 'is-swipe-animating' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        style={cardStyle}
         onClick={onCardClick}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -172,10 +283,9 @@ export function StudySession({
           }
         }}
         onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => {
-          pointerStart.current = null
-        }}
+        onPointerCancel={onPointerCancel}
         aria-label={flipped ? 'Show character' : 'Show pinyin and meaning'}
       >
         <div
