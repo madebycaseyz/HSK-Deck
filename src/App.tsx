@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   getAvailableLevels,
   getWordsForLevel,
@@ -7,6 +7,7 @@ import {
 import {
   applyRating,
   clampIndex,
+  countKnownWords,
   countRatings,
   getDeckIndex,
   getDeckWords,
@@ -21,7 +22,24 @@ import {
 } from './storage/localProgress'
 import { DeckSelect } from './components/DeckSelect'
 import { LevelSelect } from './components/LevelSelect'
+import { ReviewPrompt } from './components/ReviewPrompt'
 import { StudySession } from './components/StudySession'
+import { UpdatePrompt } from './components/UpdatePrompt'
+import {
+  dismissUpdate,
+  fetchStoreUpdate,
+  type StoreUpdateInfo,
+} from './update/checkStoreUpdate'
+import { requestAppReview } from './review/requestAppReview'
+import {
+  loadReviewPromptState,
+  markReviewLater,
+  markReviewNo,
+  markReviewYes,
+  saveReviewPromptState,
+  shouldShowReviewPrompt,
+  type ReviewPromptState,
+} from './review/reviewPrompt'
 
 type Screen =
   | { name: 'levels' }
@@ -34,6 +52,9 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'levels' })
   const [store, setStore] = useState(() => loadProgressStore())
   const [deckComplete, setDeckComplete] = useState(false)
+  const [storeUpdate, setStoreUpdate] = useState<StoreUpdateInfo | null>(null)
+  const [reviewState, setReviewState] = useState<ReviewPromptState>(() => loadReviewPromptState())
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -50,12 +71,66 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    fetchStoreUpdate()
+      .then((info) => {
+        if (!cancelled && info) setStoreUpdate(info)
+      })
+      .catch(() => {
+        // Offline or lookup failed — skip prompt
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     saveProgressStore(store)
   }, [store])
 
   useEffect(() => {
+    saveReviewPromptState(reviewState)
+  }, [reviewState])
+
+  useEffect(() => {
     setDeckComplete(false)
   }, [screen])
+
+  useEffect(() => {
+    if (reviewOpen) return
+    const known = countKnownWords(store)
+    if (
+      shouldShowReviewPrompt(known, reviewState, {
+        updatePromptVisible: storeUpdate !== null,
+      })
+    ) {
+      setReviewOpen(true)
+    }
+  }, [store, reviewState, storeUpdate, reviewOpen])
+
+  const dismissStoreUpdate = useCallback(() => {
+    if (storeUpdate) dismissUpdate(storeUpdate.storeVersion)
+    setStoreUpdate(null)
+  }, [storeUpdate])
+
+  const handleReviewYes = useCallback(() => {
+    const known = countKnownWords(store)
+    setReviewState(markReviewYes(reviewState, known))
+    setReviewOpen(false)
+    void requestAppReview()
+  }, [reviewState, store])
+
+  const handleReviewNotReally = useCallback(() => {
+    const known = countKnownWords(store)
+    setReviewState(markReviewNo(reviewState, known))
+    setReviewOpen(false)
+  }, [reviewState, store])
+
+  const handleReviewNotNow = useCallback(() => {
+    const known = countKnownWords(store)
+    setReviewState(markReviewLater(reviewState, known))
+    setReviewOpen(false)
+  }, [reviewState, store])
 
   const handleRate = useCallback((level: number, deck: DeckKind, index: number, rating: Rating) => {
     setStore((prev) => {
@@ -139,54 +214,80 @@ export default function App() {
   }
 
   const levels = getAvailableLevels()
+  const updateOverlay = storeUpdate ? (
+    <UpdatePrompt
+      storeVersion={storeUpdate.storeVersion}
+      storeUrl={storeUpdate.storeUrl}
+      onLater={dismissStoreUpdate}
+    />
+  ) : null
+
+  const reviewOverlay =
+    reviewOpen && !storeUpdate ? (
+      <ReviewPrompt
+        onYes={handleReviewYes}
+        onNotReally={handleReviewNotReally}
+        onNotNow={handleReviewNotNow}
+      />
+    ) : null
+
+  let main: ReactNode
 
   if (screen.name === 'levels') {
-    return (
+    main = (
       <LevelSelect
         levels={levels}
         onSelect={(level) => setScreen({ name: 'decks', level })}
       />
     )
+  } else {
+    const progress = getLevelProgress(store, screen.level)
+    const mainWords = getWordsForLevel(screen.level)
+    const counts = countRatings(progress)
+
+    if (screen.name === 'decks') {
+      main = (
+        <DeckSelect
+          level={screen.level}
+          mainCount={mainWords.length}
+          knowCount={counts.know}
+          reviewCount={counts.review}
+          resumeIndex={clampIndex(progress.mainIndex, mainWords.length)}
+          onBack={() => setScreen({ name: 'levels' })}
+          onSelect={(deck) => setScreen({ name: 'study', level: screen.level, deck })}
+        />
+      )
+    } else {
+      const deckWords = getDeckWords(mainWords, progress, screen.deck)
+      const index = clampIndex(getDeckIndex(progress, screen.deck), deckWords.length)
+
+      main = (
+        <StudySession
+          level={screen.level}
+          deck={screen.deck}
+          words={deckWords}
+          index={index}
+          complete={deckComplete}
+          onBack={() => setScreen({ name: 'decks', level: screen.level })}
+          onFlipNavigate={(delta) => {
+            if (deckWords.length === 0) return
+            persistIndex(screen.level, screen.deck, clampIndex(index + delta, deckWords.length))
+          }}
+          onRate={(rating) => handleRate(screen.level, screen.deck, index, rating)}
+          onRestart={() => {
+            setDeckComplete(false)
+            persistIndex(screen.level, screen.deck, 0)
+          }}
+        />
+      )
+    }
   }
-
-  const progress = getLevelProgress(store, screen.level)
-  const mainWords = getWordsForLevel(screen.level)
-  const counts = countRatings(progress)
-
-  if (screen.name === 'decks') {
-    return (
-      <DeckSelect
-        level={screen.level}
-        mainCount={mainWords.length}
-        knowCount={counts.know}
-        reviewCount={counts.review}
-        resumeIndex={clampIndex(progress.mainIndex, mainWords.length)}
-        onBack={() => setScreen({ name: 'levels' })}
-        onSelect={(deck) => setScreen({ name: 'study', level: screen.level, deck })}
-      />
-    )
-  }
-
-  const deckWords = getDeckWords(mainWords, progress, screen.deck)
-  const index = clampIndex(getDeckIndex(progress, screen.deck), deckWords.length)
 
   return (
-    <StudySession
-      level={screen.level}
-      deck={screen.deck}
-      words={deckWords}
-      index={index}
-      complete={deckComplete}
-      onBack={() => setScreen({ name: 'decks', level: screen.level })}
-      onFlipNavigate={(delta) => {
-        if (deckWords.length === 0) return
-        persistIndex(screen.level, screen.deck, clampIndex(index + delta, deckWords.length))
-      }}
-      onRate={(rating) => handleRate(screen.level, screen.deck, index, rating)}
-      onRestart={() => {
-        setDeckComplete(false)
-        persistIndex(screen.level, screen.deck, 0)
-      }}
-    />
+    <>
+      {main}
+      {updateOverlay}
+      {reviewOverlay}
+    </>
   )
 }

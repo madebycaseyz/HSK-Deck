@@ -1,4 +1,4 @@
-import type { DeckKind, LevelProgress, Rating, Word } from './types'
+import type { DeckKind, LevelProgress, ProgressStore, Rating, Word } from './types'
 
 export function emptyLevelProgress(): LevelProgress {
   return {
@@ -63,4 +63,15 @@ export function countRatings(progress: LevelProgress): { know: number; review: n
     else if (r === 'review') review += 1
   }
   return { know, review }
+}
+
+/** Unique words marked “I know it well” across all levels. */
+export function countKnownWords(store: ProgressStore): number {
+  let know = 0
+  for (const progress of Object.values(store)) {
+    for (const r of Object.values(progress.ratings)) {
+      if (r === 'know') know += 1
+    }
+  }
+  return know
 }

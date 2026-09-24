@@ -2,8 +2,7 @@
 
 ## Before / after App Store submit
 
-- [ ] **Fix cold-launch black screen (~10s on first open)**  
-  Keep splash visible until React + vocab are ready (Capacitor Splash Screen and/or instant HTML loading state). Avoid blocking first paint on the remote CJK webfont CDN. Confirm release builds don’t feel this slow.
+- [x] ~~Fix cold-launch black screen (~10s on first open)~~ — **skip for now**. Saw once in TestFlight; not reproducing on App Store install.
 
 ## Done for you (2026-07-31)
 

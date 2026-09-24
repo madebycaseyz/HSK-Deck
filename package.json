@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
     "preview": "vite preview",
     "extract-vocab": "python3 scripts/extract_vocab.py",
     "deploy": "npm run build && touch dist/.nojekyll && gh-pages -d dist --dotfiles",
@@ -14,6 +16,9 @@
     "cap:open": "npx cap open ios"
   },
   "dependencies": {
+    "@capacitor-community/in-app-review": "^8.0.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
     "@capacitor/ios": "^8.4.2",
@@ -21,13 +26,18 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@types/node": "^24.13.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^24.13.6",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "gh-pages": "^6.3.0",
+    "jsdom": "^27.0.1",
     "oxlint": "^1.71.0",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^3.2.7"
   }
 }
