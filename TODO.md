@@ -9,17 +9,17 @@
 - [x] v1 features in code (see `V1.md`)
 - [x] `npm test` green
 - [x] `npm run cap:sync` (fresh web build into iOS)
-- [x] Release archive for **1.1 (build 3)** — `build/HSK-Deck.xcarchive` (also in Xcode Organizer when archive step succeeds)
+- [x] Release archive for **1.1 (build 4)** — `build/HSK-Deck.xcarchive` (also in Xcode Organizer)
 - [ ] CLI upload to App Store Connect — **blocked**: needs your Apple login in Xcode / App Store Connect (no API key on this machine)
 
-Archive details: version **1.1**, build **3**, bundle ID `com.madebycaseyz.hskdeck`, team `493V3MBMB4`.
+Archive details: version **1.1**, build **4**, bundle ID `com.madebycaseyz.hskdeck`, team `493V3MBMB4`.
 
 ## Your steps (do these next)
 
 ### 1. Upload the archive (≈5 min)
 
 1. Open **Xcode → Window → Organizer**.
-2. Select the latest **HSK Deck / App** archive (1.1 / 3).
+2. Select the latest **HSK Deck / App** archive (**1.1 / 4**).
 3. **Distribute App** → **App Store Connect** → **Upload**.
 4. Keep automatic signing. Finish the wizard.
 
