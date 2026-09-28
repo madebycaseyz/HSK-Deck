@@ -251,6 +251,13 @@ button:disabled {
   color: var(--ink-muted);
 }
 
+.flashcard-stack {
+  position: relative;
+  flex: 1;
+  min-height: 280px;
+  width: 100%;
+}
+
 .flashcard {
   position: relative;
   flex: 1;
@@ -262,7 +269,7 @@ button:disabled {
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   overflow: hidden;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.2s ease;
   perspective: 1000px;
   cursor: pointer;
   font: inherit;
@@ -273,22 +280,50 @@ button:disabled {
   will-change: transform;
 }
 
+.flashcard-stack .flashcard {
+  position: absolute;
+  inset: 0;
+  flex: none;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.flashcard-under {
+  z-index: 0;
+  pointer-events: none;
+  box-shadow: 0 10px 28px rgba(20, 34, 31, 0.08);
+}
+
+.flashcard-top {
+  z-index: 1;
+}
+
+.flashcard-exit {
+  z-index: 2;
+  pointer-events: none;
+}
+
 .flashcard.is-dragging {
   transition: none;
   cursor: grabbing;
 }
 
 .flashcard.is-swipe-animating {
-  transition: transform 0.22s ease-out, opacity 0.22s ease-out;
+  transition: transform 0.22s ease-out;
 }
 
-.flashcard:hover {
+.flashcard-top:hover {
   transform: scale(1.01);
 }
 
-.flashcard.is-dragging:hover,
-.flashcard.is-swipe-animating:hover {
+.flashcard-top.is-dragging:hover,
+.flashcard-top.is-swipe-animating:hover {
   transform: none;
+}
+
+.speak-btn-ghost {
+  visibility: hidden;
 }
 
 .flashcard-face {
@@ -511,6 +546,7 @@ button:disabled {
 }
 
 @media (max-width: 420px) {
+  .flashcard-stack,
   .flashcard,
   .flashcard-face {
     min-height: 240px;
@@ -520,7 +556,7 @@ button:disabled {
 @media (hover: none) {
   .level-btn:hover,
   .deck-btn:hover:not(:disabled),
-  .flashcard:hover,
+  .flashcard-top:hover,
   .rate-btn:hover {
     transform: none;
   }

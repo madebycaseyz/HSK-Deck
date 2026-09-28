@@ -103,6 +103,12 @@ describe('StudySession v1', () => {
     expect(screen.queryByRole('button', { name: 'Play English meaning' })).toBeNull()
   })
 
+  it('keeps the next card waiting underneath', () => {
+    renderSession({ index: 0 })
+    expect(screen.getByText('你好')).toBeInTheDocument()
+    expect(screen.getByText('谢谢')).toBeInTheDocument()
+  })
+
   it('swipes left to go next and right to go previous', () => {
     vi.useFakeTimers()
     const { props } = renderSession({ index: 1 })
@@ -117,22 +123,22 @@ describe('StudySession v1', () => {
     card.dispatchEvent(
       new PointerEvent('pointerup', { clientX: 100, clientY: 105, bubbles: true, pointerId: 1 }),
     )
-    expect(props.onFlipNavigate).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(220)
     expect(props.onFlipNavigate).toHaveBeenCalledWith(1)
 
+    // Finish exit overlay so the interactive card mounts again
+    vi.runOnlyPendingTimers()
     vi.mocked(props.onFlipNavigate).mockClear()
 
-    card.dispatchEvent(
+    const cardAgain = screen.getByRole('button', { name: /Show pinyin and meaning/i })
+    cardAgain.dispatchEvent(
       new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true, pointerId: 2 }),
     )
-    card.dispatchEvent(
+    cardAgain.dispatchEvent(
       new PointerEvent('pointermove', { clientX: 180, clientY: 100, bubbles: true, pointerId: 2 }),
     )
-    card.dispatchEvent(
+    cardAgain.dispatchEvent(
       new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true, pointerId: 2 }),
     )
-    vi.advanceTimersByTime(220)
     expect(props.onFlipNavigate).toHaveBeenCalledWith(-1)
 
     vi.useRealTimers()

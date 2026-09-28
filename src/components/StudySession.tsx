@@ -27,7 +27,13 @@ const EXIT_DISTANCE_PX = 440
 const SWIPE_ANIM_MS = 220
 const ROTATE_PER_PX = 0.045
 
-type SwipePhase = 'idle' | 'dragging' | 'returning' | 'exiting'
+type SwipePhase = 'idle' | 'dragging' | 'returning'
+
+type ExitOverlay = {
+  word: Word
+  x: number
+  rotating: boolean
+}
 
 function displayLabel(label: string): string {
   return label === '7-9' ? '7–9' : label
@@ -58,6 +64,88 @@ function SpeakerIcon() {
   )
 }
 
+/** Card waiting underneath: next when idle/left, previous when dragging right. */
+function peekUnderWord(
+  words: Word[],
+  index: number,
+  offsetX: number,
+  exitDir: -1 | 0 | 1,
+): Word | null {
+  const dir = exitDir !== 0 ? exitDir : offsetX > 12 ? 1 : offsetX < -12 ? -1 : 0
+  if (dir > 0 && index > 0) return words[index - 1] ?? null
+  if (dir < 0 && index < words.length - 1) return words[index + 1] ?? null
+  if (index < words.length - 1) return words[index + 1] ?? null
+  return null
+}
+
+function FlashcardFaces({
+  word,
+  interactive,
+}: {
+  word: Word
+  interactive: boolean
+}) {
+  const hasMeaning = Boolean(word.meaning.trim())
+  const meaningText = hasMeaning ? word.meaning : '—'
+
+  return (
+    <>
+      <div
+        className="flashcard-face flashcard-front"
+        data-char-count={[...word.characters].length}
+      >
+        <div className="hanzi-stack">
+          <span className="hanzi">{word.characters}</span>
+          {interactive ? (
+            <button
+              type="button"
+              className="speak-btn"
+              aria-label="Play Chinese pronunciation"
+              onClick={(e) => {
+                e.stopPropagation()
+                speak(word.characters, 'zh-CN')
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+            >
+              <SpeakerIcon />
+            </button>
+          ) : (
+            <span className="speak-btn speak-btn-ghost" aria-hidden>
+              <SpeakerIcon />
+            </span>
+          )}
+        </div>
+        {interactive ? (
+          <span className="tap-hint">Tap to flip · Swipe for next</span>
+        ) : null}
+      </div>
+      <div className="flashcard-face flashcard-back">
+        <span className="pinyin">{word.pinyin}</span>
+        <div className="card-line meaning-line">
+          <span className="meaning">{meaningText}</span>
+          {interactive && hasMeaning ? (
+            <button
+              type="button"
+              className="speak-btn"
+              aria-label="Play English meaning"
+              onClick={(e) => {
+                e.stopPropagation()
+                speak(word.meaning, 'en-US')
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+            >
+              <SpeakerIcon />
+            </button>
+          ) : null}
+        </div>
+        {word.partOfSpeech ? <span className="pos">{word.partOfSpeech}</span> : null}
+      </div>
+    </>
+  )
+}
+
 export function StudySession({
   level,
   deck,
@@ -72,13 +160,18 @@ export function StudySession({
   const [flipped, setFlipped] = useState(false)
   const [offsetX, setOffsetX] = useState(0)
   const [phase, setPhase] = useState<SwipePhase>('idle')
+  const [exitOverlay, setExitOverlay] = useState<ExitOverlay | null>(null)
+  /** While the top card is flying away, keep the revealed card pinned underneath. */
+  const [pinnedUnder, setPinnedUnder] = useState<Word | null>(null)
   const word = words[index]
   const levelLabel = displayLabel(getLevelLabel(level))
   const pointerStart = useRef<{ x: number; y: number; pointerId: number } | null>(null)
   const offsetRef = useRef(0)
   const phaseRef = useRef<SwipePhase>('idle')
+  const exitDirRef = useRef<-1 | 0 | 1>(0)
   const didSwipe = useRef(false)
   const animTimer = useRef<number | null>(null)
+  const exitRaf = useRef<number | null>(null)
 
   const setPhaseBoth = (next: SwipePhase) => {
     phaseRef.current = next
@@ -90,14 +183,14 @@ export function StudySession({
       window.clearTimeout(animTimer.current)
       animTimer.current = null
     }
+    if (exitRaf.current !== null) {
+      window.cancelAnimationFrame(exitRaf.current)
+      exitRaf.current = null
+    }
   }
 
   useEffect(() => {
     setFlipped(false)
-    clearAnimTimer()
-    offsetRef.current = 0
-    setOffsetX(0)
-    setPhaseBoth('idle')
   }, [word?.id, index])
 
   useEffect(() => () => clearAnimTimer(), [])
@@ -144,11 +237,11 @@ export function StudySession({
     )
   }
 
-  const hasMeaning = Boolean(word.meaning.trim())
-  const meaningText = hasMeaning ? word.meaning : '—'
+  const underWord =
+    pinnedUnder ?? peekUnderWord(words, index, offsetX, exitDirRef.current)
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (phaseRef.current === 'exiting' || phaseRef.current === 'returning') return
+    if (phaseRef.current === 'returning' || exitOverlay) return
     pointerStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
     didSwipe.current = false
     e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -157,7 +250,7 @@ export function StudySession({
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const start = pointerStart.current
     if (!start || e.pointerId !== start.pointerId) return
-    if (phaseRef.current === 'exiting' || phaseRef.current === 'returning') return
+    if (phaseRef.current === 'returning' || exitOverlay) return
 
     const dx = e.clientX - start.x
     const dy = e.clientY - start.y
@@ -179,6 +272,7 @@ export function StudySession({
 
   const finishReturn = () => {
     offsetRef.current = 0
+    exitDirRef.current = 0
     setOffsetX(0)
     setPhaseBoth('idle')
   }
@@ -199,18 +293,32 @@ export function StudySession({
     if (goNext || goPrev) {
       const delta = goNext ? 1 : -1
       const exitX = dx < 0 ? -EXIT_DISTANCE_PX : EXIT_DISTANCE_PX
+      const revealed = words[index + delta]
       didSwipe.current = true
-      setPhaseBoth('exiting')
-      offsetRef.current = exitX
-      setOffsetX(exitX)
+
+      // Fly only the leaving card; keep the revealed card pinned in place underneath.
+      setExitOverlay({ word, x: dx, rotating: false })
+      if (revealed) setPinnedUnder(revealed)
+      offsetRef.current = 0
+      exitDirRef.current = 0
+      setOffsetX(0)
+      setPhaseBoth('idle')
+      setFlipped(false)
+      onFlipNavigate(delta)
+
       clearAnimTimer()
-      animTimer.current = window.setTimeout(() => {
-        onFlipNavigate(delta)
-        finishReturn()
-      }, SWIPE_ANIM_MS)
+      exitRaf.current = window.requestAnimationFrame(() => {
+        setExitOverlay((prev) => (prev ? { ...prev, x: exitX, rotating: true } : null))
+        animTimer.current = window.setTimeout(() => {
+          setExitOverlay(null)
+          setPinnedUnder(null)
+          animTimer.current = null
+        }, SWIPE_ANIM_MS)
+      })
       return
     }
 
+    exitDirRef.current = 0
     setPhaseBoth('returning')
     offsetRef.current = 0
     setOffsetX(0)
@@ -225,6 +333,7 @@ export function StudySession({
       e.currentTarget.releasePointerCapture?.(start.pointerId)
     }
     if (phaseRef.current === 'dragging') {
+      exitDirRef.current = 0
       setPhaseBoth('returning')
       offsetRef.current = 0
       setOffsetX(0)
@@ -238,19 +347,19 @@ export function StudySession({
       didSwipe.current = false
       return
     }
-    if (phaseRef.current !== 'idle') return
+    if (phaseRef.current !== 'idle' || exitOverlay) return
     setFlipped((f) => !f)
   }
 
-  const dragOpacity = 1 - Math.min(0.28, Math.abs(offsetX) / 520)
-  const cardStyle =
+  const underScale = exitOverlay
+    ? 1
+    : 0.97 + Math.min(0.03, (Math.abs(offsetX) / EXIT_DISTANCE_PX) * 0.03)
+  const topStyle =
     phase === 'idle' && offsetX === 0
       ? undefined
       : {
           transform: `translateX(${offsetX}px) rotate(${offsetX * ROTATE_PER_PX}deg)`,
-          opacity: phase === 'exiting' ? 0 : dragOpacity,
         }
-
 
   return (
     <div className="page study">
@@ -263,77 +372,65 @@ export function StudySession({
         </p>
       </div>
 
-      <div
-        role="button"
-        tabIndex={0}
-        className={[
-          'flashcard',
-          flipped ? 'is-flipped' : '',
-          phase === 'dragging' ? 'is-dragging' : '',
-          phase === 'returning' || phase === 'exiting' ? 'is-swipe-animating' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-        style={cardStyle}
-        onClick={onCardClick}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onCardClick()
-          }
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerCancel}
-        aria-label={flipped ? 'Show character' : 'Show pinyin and meaning'}
-      >
-        <div
-          className="flashcard-face flashcard-front"
-          data-char-count={[...word.characters].length}
-        >
-          <div className="hanzi-stack">
-            <span className="hanzi">{word.characters}</span>
-            <button
-              type="button"
-              className="speak-btn"
-              aria-label="Play Chinese pronunciation"
-              onClick={(e) => {
-                e.stopPropagation()
-                speak(word.characters, 'zh-CN')
-              }}
-              onPointerDown={(e) => e.stopPropagation()}
-              onPointerUp={(e) => e.stopPropagation()}
-            >
-              <SpeakerIcon />
-            </button>
+      <div className="flashcard-stack">
+        {underWord ? (
+          <div
+            className="flashcard flashcard-under"
+            style={{ transform: `scale(${underScale})` }}
+            aria-hidden="true"
+          >
+            <FlashcardFaces word={underWord} interactive={false} />
           </div>
-          <span className="tap-hint">Tap to flip · Swipe for next</span>
-        </div>
-        <div className="flashcard-face flashcard-back">
-          <span className="pinyin">{word.pinyin}</span>
-          <div className="card-line meaning-line">
-            <span className="meaning">{meaningText}</span>
-            {hasMeaning ? (
-              <button
-                type="button"
-                className="speak-btn"
-                aria-label="Play English meaning"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  speak(word.meaning, 'en-US')
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onPointerUp={(e) => e.stopPropagation()}
-              >
-                <SpeakerIcon />
-              </button>
-            ) : null}
+        ) : null}
+
+        {/* Hide the interactive top while the leaving card flies away, so it can't
+            snap/slide back in over the card already revealed underneath. */}
+        {exitOverlay ? null : (
+          <div
+            role="button"
+            tabIndex={0}
+            className={[
+              'flashcard',
+              'flashcard-top',
+              flipped ? 'is-flipped' : '',
+              phase === 'dragging' ? 'is-dragging' : '',
+              phase === 'returning' ? 'is-swipe-animating' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            style={topStyle}
+            onClick={onCardClick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onCardClick()
+              }
+            }}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerCancel}
+            aria-label={flipped ? 'Show character' : 'Show pinyin and meaning'}
+          >
+            <FlashcardFaces word={word} interactive />
           </div>
-          {word.partOfSpeech ? (
-            <span className="pos">{word.partOfSpeech}</span>
-          ) : null}
-        </div>
+        )}
+
+        {exitOverlay ? (
+          <div
+            className={[
+              'flashcard',
+              'flashcard-exit',
+              exitOverlay.rotating ? 'is-swipe-animating' : 'is-dragging',
+            ].join(' ')}
+            style={{
+              transform: `translateX(${exitOverlay.x}px) rotate(${exitOverlay.x * ROTATE_PER_PX}deg)`,
+            }}
+            aria-hidden="true"
+          >
+            <FlashcardFaces word={exitOverlay.word} interactive={false} />
+          </div>
+        ) : null}
       </div>
 
       <div className="controls">
