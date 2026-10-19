@@ -1,9 +1,12 @@
+import { track } from '../analytics/amplitude'
+
 /** Speak text with the device/browser TTS engine. */
 export function speak(text: string, lang: string): void {
   const trimmed = text.trim()
   if (!trimmed) return
   if (typeof window === 'undefined' || !window.speechSynthesis) return
 
+  track('tts_played', { lang })
   window.speechSynthesis.cancel()
 
   const utterance = new SpeechSynthesisUtterance(trimmed)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { initAnalytics, track } from './analytics/amplitude'
 import {
   getAvailableLevels,
   getWordsForLevel,
@@ -25,6 +26,7 @@ import { LevelSelect } from './components/LevelSelect'
 import { ReviewPrompt } from './components/ReviewPrompt'
 import { StudySession } from './components/StudySession'
 import { UpdatePrompt } from './components/UpdatePrompt'
+import { WordList } from './components/WordList'
 import {
   dismissUpdate,
   fetchStoreUpdate,
@@ -44,6 +46,7 @@ import {
 type Screen =
   | { name: 'levels' }
   | { name: 'decks'; level: number }
+  | { name: 'wordList'; level: number }
   | { name: 'study'; level: number; deck: DeckKind }
 
 export default function App() {
@@ -55,6 +58,11 @@ export default function App() {
   const [storeUpdate, setStoreUpdate] = useState<StoreUpdateInfo | null>(null)
   const [reviewState, setReviewState] = useState<ReviewPromptState>(() => loadReviewPromptState())
   const [reviewOpen, setReviewOpen] = useState(false)
+
+  useEffect(() => {
+    initAnalytics()
+    track('app_open')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -133,25 +141,19 @@ export default function App() {
   }, [reviewState, store])
 
   const handleRate = useCallback((level: number, deck: DeckKind, index: number, rating: Rating) => {
+    track('card_rated', { level, deck, rating })
     setStore((prev) => {
       const progress = getLevelProgress(prev, level)
-      const mainWords = getWordsForLevel(level)
-      const deckWords = getDeckWords(mainWords, progress, deck)
+      const allWords = getWordsForLevel(level)
+      const deckWords = getDeckWords(allWords, progress, deck)
       const word = deckWords[index]
       if (!word) return prev
 
       let next = applyRating(progress, word.id, rating)
-      const nextDeckWords = getDeckWords(mainWords, next, deck)
+      const nextDeckWords = getDeckWords(allWords, next, deck)
       let finished = false
 
-      if (deck === 'main') {
-        if (index >= mainWords.length - 1) {
-          finished = true
-          next = withDeckIndex(next, 'main', index)
-        } else {
-          next = withDeckIndex(next, 'main', index + 1)
-        }
-      } else if (nextDeckWords.length === 0) {
+      if (nextDeckWords.length === 0) {
         finished = true
         next = withDeckIndex(next, deck, 0)
       } else {
@@ -168,12 +170,16 @@ export default function App() {
           finished = true
           next = withDeckIndex(next, deck, nextDeckWords.length - 1)
         } else {
+          // Word left this deck (e.g. rated out of main); same index shows the next word.
           next = withDeckIndex(next, deck, index)
         }
       }
 
       queueMicrotask(() => {
-        if (finished) setDeckComplete(true)
+        if (finished) {
+          setDeckComplete(true)
+          track('deck_completed', { level, deck })
+        }
       })
 
       return setLevelProgress(prev, level, next)
@@ -237,12 +243,16 @@ export default function App() {
     main = (
       <LevelSelect
         levels={levels}
-        onSelect={(level) => setScreen({ name: 'decks', level })}
+        onSelect={(level) => {
+          track('level_selected', { level })
+          setScreen({ name: 'decks', level })
+        }}
       />
     )
   } else {
     const progress = getLevelProgress(store, screen.level)
-    const mainWords = getWordsForLevel(screen.level)
+    const allWords = getWordsForLevel(screen.level)
+    const mainWords = getDeckWords(allWords, progress, 'main')
     const counts = countRatings(progress)
 
     if (screen.name === 'decks') {
@@ -250,15 +260,32 @@ export default function App() {
         <DeckSelect
           level={screen.level}
           mainCount={mainWords.length}
+          totalCount={allWords.length}
           knowCount={counts.know}
           reviewCount={counts.review}
           resumeIndex={clampIndex(progress.mainIndex, mainWords.length)}
           onBack={() => setScreen({ name: 'levels' })}
-          onSelect={(deck) => setScreen({ name: 'study', level: screen.level, deck })}
+          onSelect={(deck) => {
+            track('deck_selected', { level: screen.level, deck })
+            setScreen({ name: 'study', level: screen.level, deck })
+          }}
+          onOpenWordList={() => {
+            track('word_list_opened', { level: screen.level })
+            setScreen({ name: 'wordList', level: screen.level })
+          }}
+        />
+      )
+    } else if (screen.name === 'wordList') {
+      main = (
+        <WordList
+          level={screen.level}
+          words={allWords}
+          progress={progress}
+          onBack={() => setScreen({ name: 'decks', level: screen.level })}
         />
       )
     } else {
-      const deckWords = getDeckWords(mainWords, progress, screen.deck)
+      const deckWords = getDeckWords(allWords, progress, screen.deck)
       const index = clampIndex(getDeckIndex(progress, screen.deck), deckWords.length)
 
       main = (
@@ -271,7 +298,22 @@ export default function App() {
           onBack={() => setScreen({ name: 'decks', level: screen.level })}
           onFlipNavigate={(delta) => {
             if (deckWords.length === 0) return
+            track('card_swiped', {
+              level: screen.level,
+              deck: screen.deck,
+              direction: delta > 0 ? 'next' : 'prev',
+            })
             persistIndex(screen.level, screen.deck, clampIndex(index + delta, deckWords.length))
+          }}
+          onRequestComplete={() => {
+            setDeckComplete(true)
+            track('deck_completed', { level: screen.level, deck: screen.deck })
+          }}
+          onDismissComplete={() => {
+            setDeckComplete(false)
+            if (deckWords.length > 0) {
+              persistIndex(screen.level, screen.deck, deckWords.length - 1)
+            }
           }}
           onRate={(rating) => handleRate(screen.level, screen.deck, index, rating)}
           onRestart={() => {

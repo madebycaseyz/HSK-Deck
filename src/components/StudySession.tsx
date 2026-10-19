@@ -11,13 +11,15 @@ type StudySessionProps = {
   complete: boolean
   onBack: () => void
   onFlipNavigate: (delta: number) => void
+  onRequestComplete: () => void
+  onDismissComplete: () => void
   onRate: (rating: Rating) => void
   onRestart: () => void
 }
 
 const deckTitles: Record<DeckKind, string> = {
   main: 'Main deck',
-  know: 'I know it well',
+  know: 'Know it well',
   review: 'Review again',
 }
 
@@ -29,7 +31,7 @@ const ROTATE_PER_PX = 0.045
 
 type SwipePhase = 'idle' | 'dragging' | 'returning'
 
-type ExitOverlay = {
+type FlyCard = {
   word: Word
   x: number
   rotating: boolean
@@ -62,20 +64,6 @@ function SpeakerIcon() {
       />
     </svg>
   )
-}
-
-/** Card waiting underneath: next when idle/left, previous when dragging right. */
-function peekUnderWord(
-  words: Word[],
-  index: number,
-  offsetX: number,
-  exitDir: -1 | 0 | 1,
-): Word | null {
-  const dir = exitDir !== 0 ? exitDir : offsetX > 12 ? 1 : offsetX < -12 ? -1 : 0
-  if (dir > 0 && index > 0) return words[index - 1] ?? null
-  if (dir < 0 && index < words.length - 1) return words[index + 1] ?? null
-  if (index < words.length - 1) return words[index + 1] ?? null
-  return null
 }
 
 function FlashcardFaces({
@@ -154,24 +142,27 @@ export function StudySession({
   complete,
   onBack,
   onFlipNavigate,
+  onRequestComplete,
+  onDismissComplete,
   onRate,
   onRestart,
 }: StudySessionProps) {
   const [flipped, setFlipped] = useState(false)
   const [offsetX, setOffsetX] = useState(0)
   const [phase, setPhase] = useState<SwipePhase>('idle')
-  const [exitOverlay, setExitOverlay] = useState<ExitOverlay | null>(null)
-  /** While the top card is flying away, keep the revealed card pinned underneath. */
+  /** Leaving card flying left (next). */
+  const [exitOverlay, setExitOverlay] = useState<FlyCard | null>(null)
+  /** Previous card sliding in from the left (take back). */
+  const [enterOverlay, setEnterOverlay] = useState<FlyCard | null>(null)
   const [pinnedUnder, setPinnedUnder] = useState<Word | null>(null)
   const word = words[index]
   const levelLabel = displayLabel(getLevelLabel(level))
   const pointerStart = useRef<{ x: number; y: number; pointerId: number } | null>(null)
   const offsetRef = useRef(0)
   const phaseRef = useRef<SwipePhase>('idle')
-  const exitDirRef = useRef<-1 | 0 | 1>(0)
   const didSwipe = useRef(false)
   const animTimer = useRef<number | null>(null)
-  const exitRaf = useRef<number | null>(null)
+  const busy = exitOverlay !== null || enterOverlay !== null
 
   const setPhaseBoth = (next: SwipePhase) => {
     phaseRef.current = next
@@ -183,10 +174,11 @@ export function StudySession({
       window.clearTimeout(animTimer.current)
       animTimer.current = null
     }
-    if (exitRaf.current !== null) {
-      window.cancelAnimationFrame(exitRaf.current)
-      exitRaf.current = null
-    }
+  }
+
+  const afterPaint = (fn: () => void) => {
+    clearAnimTimer()
+    animTimer.current = window.setTimeout(fn, 0)
   }
 
   useEffect(() => {
@@ -195,25 +187,65 @@ export function StudySession({
 
   useEffect(() => () => clearAnimTimer(), [])
 
+  const onCompletePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    // Don't capture when pressing buttons — that blocks click handlers.
+    if ((e.target as HTMLElement | null)?.closest?.('button')) return
+    pointerStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
+    didSwipe.current = false
+  }
+
+  const onCompletePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const start = pointerStart.current
+    pointerStart.current = null
+    if (!start) return
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+    if (Math.abs(dx) < SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return
+    if (dx > 0 && words.length > 0) {
+      didSwipe.current = true
+      onDismissComplete()
+    }
+  }
+
   if (complete) {
     return (
-      <div className="page">
-        <button type="button" className="text-back" onClick={onBack}>
-          ← Decks
-        </button>
-        <div className="empty-state">
+      <div
+        className="page study deck-complete"
+        onPointerDown={onCompletePointerDown}
+        onPointerUp={onCompletePointerUp}
+        onPointerCancel={() => {
+          pointerStart.current = null
+        }}
+      >
+        <div className="study-top">
+          <button
+            type="button"
+            className="text-back"
+            onClick={onBack}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            ← Decks
+          </button>
+        </div>
+        <div className="deck-complete-body">
+          <p className="eyebrow">Done</p>
           <h1 className="brand">Deck complete</h1>
           <p className="lede">
             You’ve reached the end of {deckTitles[deck].toLowerCase()} for HSK {levelLabel}.
           </p>
           <div className="done-actions">
-            <button type="button" className="rate-btn know" onClick={onRestart}>
+            <button
+              type="button"
+              className="rate-btn know"
+              onClick={onRestart}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
               Start from beginning
             </button>
-            <button type="button" className="secondary-btn" onClick={onBack}>
-              Back to decks
-            </button>
           </div>
+          {words.length > 0 ? (
+            <p className="tap-hint complete-hint">Swipe right to go back</p>
+          ) : null}
         </div>
       </div>
     )
@@ -221,11 +253,13 @@ export function StudySession({
 
   if (words.length === 0 || !word) {
     return (
-      <div className="page">
-        <button type="button" className="text-back" onClick={onBack}>
-          ← Decks
-        </button>
-        <div className="empty-state">
+      <div className="page study">
+        <div className="study-top">
+          <button type="button" className="text-back" onClick={onBack}>
+            ← Decks
+          </button>
+        </div>
+        <div className="deck-complete-body">
           <h1 className="brand">Nothing here yet</h1>
           <p className="lede">
             {deck === 'know' || deck === 'review'
@@ -237,11 +271,16 @@ export function StudySession({
     )
   }
 
+  const prevWord = index > 0 ? words[index - 1] : null
+  const nextWord = index < words.length - 1 ? words[index + 1] : null
+
+  /** While dragging left, next sits under; while dragging right, current stays and prev peeks in. */
   const underWord =
-    pinnedUnder ?? peekUnderWord(words, index, offsetX, exitDirRef.current)
+    pinnedUnder ??
+    (offsetX < -12 || exitOverlay ? nextWord : null)
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (phaseRef.current === 'returning' || exitOverlay) return
+    if (phaseRef.current === 'returning' || busy) return
     pointerStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId }
     didSwipe.current = false
     e.currentTarget.setPointerCapture?.(e.pointerId)
@@ -250,7 +289,7 @@ export function StudySession({
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const start = pointerStart.current
     if (!start || e.pointerId !== start.pointerId) return
-    if (phaseRef.current === 'returning' || exitOverlay) return
+    if (phaseRef.current === 'returning' || busy) return
 
     const dx = e.clientX - start.x
     const dy = e.clientY - start.y
@@ -272,7 +311,6 @@ export function StudySession({
 
   const finishReturn = () => {
     offsetRef.current = 0
-    exitDirRef.current = 0
     setOffsetX(0)
     setPhaseBoth('idle')
   }
@@ -288,27 +326,24 @@ export function StudySession({
 
     const dx = offsetRef.current
     const goNext = dx < -SWIPE_THRESHOLD_PX && index < words.length - 1
+    const goComplete = dx < -SWIPE_THRESHOLD_PX && index >= words.length - 1
     const goPrev = dx > SWIPE_THRESHOLD_PX && index > 0
 
-    if (goNext || goPrev) {
-      const delta = goNext ? 1 : -1
-      const exitX = dx < 0 ? -EXIT_DISTANCE_PX : EXIT_DISTANCE_PX
-      const revealed = words[index + delta]
+    if (goNext) {
+      const revealed = words[index + 1]
       didSwipe.current = true
-
-      // Fly only the leaving card; keep the revealed card pinned in place underneath.
       setExitOverlay({ word, x: dx, rotating: false })
       if (revealed) setPinnedUnder(revealed)
       offsetRef.current = 0
-      exitDirRef.current = 0
       setOffsetX(0)
       setPhaseBoth('idle')
       setFlipped(false)
-      onFlipNavigate(delta)
+      onFlipNavigate(1)
 
-      clearAnimTimer()
-      exitRaf.current = window.requestAnimationFrame(() => {
-        setExitOverlay((prev) => (prev ? { ...prev, x: exitX, rotating: true } : null))
+      afterPaint(() => {
+        setExitOverlay((prev) =>
+          prev ? { ...prev, x: -EXIT_DISTANCE_PX, rotating: true } : null,
+        )
         animTimer.current = window.setTimeout(() => {
           setExitOverlay(null)
           setPinnedUnder(null)
@@ -318,7 +353,46 @@ export function StudySession({
       return
     }
 
-    exitDirRef.current = 0
+    if (goComplete) {
+      didSwipe.current = true
+      setExitOverlay({ word, x: dx, rotating: false })
+      offsetRef.current = 0
+      setOffsetX(0)
+      setPhaseBoth('idle')
+      setFlipped(false)
+      afterPaint(() => {
+        setExitOverlay((prev) =>
+          prev ? { ...prev, x: -EXIT_DISTANCE_PX, rotating: true } : null,
+        )
+        animTimer.current = window.setTimeout(() => {
+          setExitOverlay(null)
+          onRequestComplete()
+          animTimer.current = null
+        }, SWIPE_ANIM_MS)
+      })
+      return
+    }
+
+    if (goPrev && prevWord) {
+      didSwipe.current = true
+      // Previous card slides in from the left; current stays put underneath.
+      setEnterOverlay({ word: prevWord, x: Math.min(0, dx - EXIT_DISTANCE_PX), rotating: false })
+      offsetRef.current = 0
+      setOffsetX(0)
+      setPhaseBoth('idle')
+      setFlipped(false)
+
+      afterPaint(() => {
+        setEnterOverlay((prev) => (prev ? { ...prev, x: 0, rotating: true } : null))
+        animTimer.current = window.setTimeout(() => {
+          onFlipNavigate(-1)
+          setEnterOverlay(null)
+          animTimer.current = null
+        }, SWIPE_ANIM_MS)
+      })
+      return
+    }
+
     setPhaseBoth('returning')
     offsetRef.current = 0
     setOffsetX(0)
@@ -333,7 +407,6 @@ export function StudySession({
       e.currentTarget.releasePointerCapture?.(start.pointerId)
     }
     if (phaseRef.current === 'dragging') {
-      exitDirRef.current = 0
       setPhaseBoth('returning')
       offsetRef.current = 0
       setOffsetX(0)
@@ -347,19 +420,32 @@ export function StudySession({
       didSwipe.current = false
       return
     }
-    if (phaseRef.current !== 'idle' || exitOverlay) return
+    if (phaseRef.current !== 'idle' || busy) return
     setFlipped((f) => !f)
   }
 
-  const underScale = exitOverlay
-    ? 1
-    : 0.97 + Math.min(0.03, (Math.abs(offsetX) / EXIT_DISTANCE_PX) * 0.03)
+  const draggingLeft = offsetX < 0
+  const draggingRight = offsetX > 0 && prevWord
+
   const topStyle =
     phase === 'idle' && offsetX === 0
       ? undefined
-      : {
-          transform: `translateX(${offsetX}px) rotate(${offsetX * ROTATE_PER_PX}deg)`,
-        }
+      : draggingRight
+        ? undefined // current stays put while previous enters
+        : {
+            transform: `translateX(${offsetX}px) rotate(${offsetX * ROTATE_PER_PX}deg)`,
+          }
+
+  const underScale =
+    exitOverlay || enterOverlay
+      ? 1
+      : draggingLeft
+        ? 0.97 + Math.min(0.03, (Math.abs(offsetX) / EXIT_DISTANCE_PX) * 0.03)
+        : 0.97
+
+  const liveEnterX = draggingRight
+    ? Math.min(0, offsetX - EXIT_DISTANCE_PX)
+    : null
 
   return (
     <div className="page study">
@@ -373,7 +459,7 @@ export function StudySession({
       </div>
 
       <div className="flashcard-stack">
-        {underWord ? (
+        {underWord && !draggingRight ? (
           <div
             className="flashcard flashcard-under"
             style={{ transform: `scale(${underScale})` }}
@@ -383,8 +469,7 @@ export function StudySession({
           </div>
         ) : null}
 
-        {/* Hide the interactive top while the leaving card flies away, so it can't
-            snap/slide back in over the card already revealed underneath. */}
+        {/* Current card — hidden only while exiting left */}
         {exitOverlay ? null : (
           <div
             role="button"
@@ -393,8 +478,9 @@ export function StudySession({
               'flashcard',
               'flashcard-top',
               flipped ? 'is-flipped' : '',
-              phase === 'dragging' ? 'is-dragging' : '',
+              phase === 'dragging' && draggingLeft ? 'is-dragging' : '',
               phase === 'returning' ? 'is-swipe-animating' : '',
+              enterOverlay ? 'flashcard-under-current' : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -416,6 +502,19 @@ export function StudySession({
           </div>
         )}
 
+        {/* Live previous card while dragging right */}
+        {liveEnterX !== null && prevWord && !enterOverlay ? (
+          <div
+            className="flashcard flashcard-enter is-dragging"
+            style={{
+              transform: `translateX(${liveEnterX}px) rotate(${liveEnterX * ROTATE_PER_PX}deg)`,
+            }}
+            aria-hidden="true"
+          >
+            <FlashcardFaces word={prevWord} interactive={false} />
+          </div>
+        ) : null}
+
         {exitOverlay ? (
           <div
             className={[
@@ -429,6 +528,22 @@ export function StudySession({
             aria-hidden="true"
           >
             <FlashcardFaces word={exitOverlay.word} interactive={false} />
+          </div>
+        ) : null}
+
+        {enterOverlay ? (
+          <div
+            className={[
+              'flashcard',
+              'flashcard-enter',
+              enterOverlay.rotating ? 'is-swipe-animating' : 'is-dragging',
+            ].join(' ')}
+            style={{
+              transform: `translateX(${enterOverlay.x}px) rotate(${enterOverlay.x * ROTATE_PER_PX}deg)`,
+            }}
+            aria-hidden="true"
+          >
+            <FlashcardFaces word={enterOverlay.word} interactive={false} />
           </div>
         ) : null}
       </div>
@@ -453,7 +568,7 @@ export function StudySession({
               onRate('know')
             }}
           >
-            I know it well
+            Know it well
           </button>
         </div>
       </div>

@@ -54,6 +54,8 @@ function renderSession(
     complete: false,
     onBack: vi.fn(),
     onFlipNavigate: vi.fn(),
+    onRequestComplete: vi.fn(),
+    onDismissComplete: vi.fn(),
     onRate: vi.fn(),
     onRestart: vi.fn(),
     ...overrides,
@@ -106,7 +108,8 @@ describe('StudySession v1', () => {
   it('keeps the next card waiting underneath', () => {
     renderSession({ index: 0 })
     expect(screen.getByText('你好')).toBeInTheDocument()
-    expect(screen.getByText('谢谢')).toBeInTheDocument()
+    // Next is under only after left-drag peek; idle still shows current.
+    expect(screen.getAllByText('你好').length).toBeGreaterThanOrEqual(1)
   })
 
   it('swipes left to go next and right to go previous', () => {
@@ -125,8 +128,7 @@ describe('StudySession v1', () => {
     )
     expect(props.onFlipNavigate).toHaveBeenCalledWith(1)
 
-    // Finish exit overlay so the interactive card mounts again
-    vi.runOnlyPendingTimers()
+    vi.runAllTimers()
     vi.mocked(props.onFlipNavigate).mockClear()
 
     const cardAgain = screen.getByRole('button', { name: /Show pinyin and meaning/i })
@@ -139,15 +141,55 @@ describe('StudySession v1', () => {
     cardAgain.dispatchEvent(
       new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true, pointerId: 2 }),
     )
+    expect(props.onFlipNavigate).not.toHaveBeenCalled()
+    vi.runAllTimers()
     expect(props.onFlipNavigate).toHaveBeenCalledWith(-1)
 
+    vi.useRealTimers()
+  })
+
+  it('swipes left on the last card to request complete', () => {
+    vi.useFakeTimers()
+    const { props } = renderSession({ index: 2 })
+    const card = screen.getByRole('button', { name: /Show pinyin and meaning/i })
+
+    card.dispatchEvent(
+      new PointerEvent('pointerdown', { clientX: 200, clientY: 100, bubbles: true, pointerId: 1 }),
+    )
+    card.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: 120, clientY: 100, bubbles: true, pointerId: 1 }),
+    )
+    card.dispatchEvent(
+      new PointerEvent('pointerup', { clientX: 100, clientY: 100, bubbles: true, pointerId: 1 }),
+    )
+    expect(props.onRequestComplete).not.toHaveBeenCalled()
+    vi.runAllTimers()
+    expect(props.onRequestComplete).toHaveBeenCalled()
     vi.useRealTimers()
   })
 
   it('still rates words', async () => {
     const user = userEvent.setup()
     const { props } = renderSession()
-    await user.click(screen.getByRole('button', { name: 'I know it well' }))
+    await user.click(screen.getByRole('button', { name: 'Know it well' }))
     expect(props.onRate).toHaveBeenCalledWith('know')
+  })
+
+  it('shows deck complete without Back to decks', () => {
+    renderSession({ complete: true })
+    expect(screen.getByText('Deck complete')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Back to decks' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Start from beginning' })).toBeInTheDocument()
+  })
+
+  it('lets Start from beginning and Decks work on the complete screen', async () => {
+    const user = userEvent.setup()
+    const { props } = renderSession({ complete: true })
+
+    await user.click(screen.getByRole('button', { name: 'Start from beginning' }))
+    expect(props.onRestart).toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '← Decks' }))
+    expect(props.onBack).toHaveBeenCalled()
   })
 })

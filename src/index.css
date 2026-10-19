@@ -234,6 +234,125 @@ button:disabled {
   color: var(--ink-muted);
 }
 
+.text-link {
+  display: inline;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--teal-deep);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+
+.word-list-link {
+  align-self: flex-start;
+}
+
+.word-list-page .word-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.word-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.15rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.word-list-main {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.word-list-hanzi {
+  font-family: var(--font-hanzi);
+  font-size: 1.35rem;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.word-list-pinyin {
+  font-size: 0.95rem;
+  color: var(--ink-muted);
+  line-height: 1.2;
+}
+
+.word-list-badge {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(20, 34, 31, 0.08);
+  color: var(--ink-muted);
+}
+
+.word-list-badge.basket-know {
+  background: rgba(31, 111, 100, 0.16);
+  color: var(--know);
+}
+
+.word-list-badge.basket-review {
+  background: rgba(181, 74, 50, 0.16);
+  color: var(--review);
+}
+
+.deck-complete {
+  justify-content: flex-start;
+}
+
+.deck-complete-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.65rem;
+  padding: 1rem 0 2rem;
+}
+
+.deck-complete-body .brand {
+  margin: 0;
+}
+
+.deck-complete-body .lede {
+  max-width: 28ch;
+}
+
+.complete-hint {
+  margin-top: 1.5rem;
+}
+
+.flashcard-enter {
+  z-index: 2;
+  pointer-events: none;
+}
+
+.flashcard-under-current {
+  z-index: 1;
+}
+
 .study-top {
   display: flex;
   flex-direction: column;

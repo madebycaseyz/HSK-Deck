@@ -9,14 +9,30 @@ export function emptyLevelProgress(): LevelProgress {
   }
 }
 
+/**
+ * Main = unrated only. Know / Review = rated baskets.
+ * A word is in exactly one of the three at a time.
+ */
 export function getDeckWords(
   mainWords: Word[],
   progress: LevelProgress,
   deck: DeckKind,
 ): Word[] {
-  if (deck === 'main') return mainWords
+  if (deck === 'main') {
+    return mainWords.filter((w) => progress.ratings[w.id] == null)
+  }
   const rating: Rating = deck === 'know' ? 'know' : 'review'
   return mainWords.filter((w) => progress.ratings[w.id] === rating)
+}
+
+export function getBasketForWord(
+  progress: LevelProgress,
+  wordId: string,
+): 'main' | 'know' | 'review' {
+  const r = progress.ratings[wordId]
+  if (r === 'know') return 'know'
+  if (r === 'review') return 'review'
+  return 'main'
 }
 
 export function getDeckIndex(progress: LevelProgress, deck: DeckKind): number {
@@ -65,7 +81,7 @@ export function countRatings(progress: LevelProgress): { know: number; review: n
   return { know, review }
 }
 
-/** Unique words marked “I know it well” across all levels. */
+/** Unique words marked “Know it well” across all levels. */
 export function countKnownWords(store: ProgressStore): number {
   let know = 0
   for (const progress of Object.values(store)) {

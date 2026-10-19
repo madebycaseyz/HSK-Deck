@@ -16,7 +16,7 @@ export type Word = {
 export type LevelProgress = {
   /** Index into the main deck word list */
   mainIndex: number
-  /** Latest rating per word id; know and review are mutually exclusive */
+  /** Latest rating per word id. Unrated = main; know/review leave main. */
   ratings: Record<string, Rating>
   knowIndex: number
   reviewIndex: number

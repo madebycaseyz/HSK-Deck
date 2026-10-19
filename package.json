@@ -16,6 +16,7 @@
     "cap:open": "npx cap open ios"
   },
   "dependencies": {
+    "@amplitude/analytics-browser": "^2.48.0",
     "@capacitor-community/in-app-review": "^8.0.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/browser": "^8.0.4",
@@ -36,6 +37,7 @@
     "gh-pages": "^6.3.0",
     "jsdom": "^27.0.1",
     "oxlint": "^1.71.0",
+    "playwright": "^1.49.0",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vitest": "^3.2.7"
